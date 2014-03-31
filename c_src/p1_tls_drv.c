@@ -48,6 +48,8 @@ typedef unsigned __int32 uint32_t;
 #endif
 
 #define CIPHERS "DEFAULT:!EXPORT:!LOW:!RC4:!SSLv2"
+#define SSL_OPTS_CONNECT (SSL_OP_NO_SSLv2|SSL_OP_NO_TICKET)
+#define SSL_OPTS_ACCEPT (SSL_OP_NO_SSLv2|SSL_OP_NO_TICKET|SSL_OP_ALL)
 
 /*
  * R15B changed several driver callbacks to use ErlDrvSizeT and
@@ -438,6 +440,8 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
       case SET_CERTIFICATE_FILE_ACCEPT:
       case SET_CERTIFICATE_FILE_CONNECT: {
 	 time_t mtime = 0;
+	 char *sslv3_disable = (buf + strlen(buf) + 1) + strlen(buf + strlen(buf) + 1) + 1;
+	 long options;
 	 SSL_CTX *ssl_ctx = hash_table_lookup(buf, &mtime);
 	 if (is_key_file_modified(buf, &mtime) || ssl_ctx == NULL)
 	 {
@@ -459,9 +463,11 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
 	    die_unless(res > 0, "SSL_CTX_check_private_key failed");
 
 	    ciphers = buf + strlen(buf) + 1;
+
 	    if (strlen(ciphers) == 0)
 	       ciphers = CIPHERS;
-	    SSL_CTX_set_cipher_list(ctx, ciphers);
+	    res = SSL_CTX_set_cipher_list(ctx, ciphers);
+	    die_unless(res > 0, "SSL_CTX_set_cipher_list failed");
 
 #ifndef OPENSSL_NO_ECDH
 	    if (command == SET_CERTIFICATE_FILE_ACCEPT) {
@@ -514,12 +520,23 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
 
 	 SSL_set_bio(d->ssl, d->bio_read, d->bio_write);
 
+	long res;
+
 	 if (command == SET_CERTIFICATE_FILE_ACCEPT) {
-	    SSL_set_options(d->ssl, SSL_OP_NO_SSLv2|SSL_OP_NO_TICKET|SSL_OP_ALL);
+	    options = SSL_OPTS_ACCEPT;
+	    if (strlen(sslv3_disable) != 0)
+		options = SSL_OPTS_ACCEPT|SSL_OP_NO_SSLv3;
+
+	    res = SSL_set_options(d->ssl, options);
 
 	    SSL_set_accept_state(d->ssl);
 	 } else {
-	    SSL_set_options(d->ssl, SSL_OP_NO_SSLv2|SSL_OP_NO_TICKET);
+	    options = SSL_OPTS_CONNECT;
+	    if (strlen(sslv3_disable) != 0)
+	        options = SSL_OPTS_CONNECT|SSL_OP_NO_SSLv3;
+
+	    res = SSL_set_options(d->ssl, options);
+
 	    SSL_set_connect_state(d->ssl);
 	 }
 	 break;
@@ -532,7 +549,7 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
 	 die_unless(d->ssl, "SSL not initialized");
 
 	 res = SSL_write(d->ssl, buf, len);
-	 if (res <= 0) 
+	 if (res <= 0)
 	 {
 	    res = SSL_get_error(d->ssl, res);
 	    if (res == SSL_ERROR_WANT_READ || res == SSL_ERROR_WANT_WRITE) 

@@ -133,9 +133,13 @@ tcp_to_tls(TCPSocket, Options) ->
                     false ->
                         <<>>
                 end,
+          SSLv3Disable = case lists:member(sslv3_disable, Options) of
+                           true -> <<1>>;
+                           false -> <<>>
+                         end,
           CertFile1 = iolist_to_binary(CertFile),
 	  case port_control(Port, Command bor Flags,
-			    <<CertFile1/binary, 0, Ciphers/binary, 0>>)
+			    <<CertFile1/binary, 0, Ciphers/binary, 0, SSLv3Disable/binary, 0>>)
 	      of
 	    <<0>> ->
 		{ok, #tlssock{tcpsock = TCPSocket, tlsport = Port}};
