@@ -21,11 +21,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <erl_driver.h>
-#include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include "options.h"
 
 #define BUF_SIZE 1024
 
@@ -48,6 +49,21 @@ typedef unsigned __int32 uint32_t;
 #endif
 
 #define CIPHERS "DEFAULT:!EXPORT:!LOW:!RC4:!SSLv2"
+
+/**
+ * Prepare the SSL options flag.
+ **/
+static int set_option_flag(const char *opt, long *flag)
+{
+    ssl_option_t *p;
+    for (p = ssl_options; p->name; p++) {
+        if (!strcmp(opt, p->name)) {
+            *flag |= p->code;
+            return 1;
+        }
+    }
+    return 0;
+}
 
 /*
  * R15B changed several driver callbacks to use ErlDrvSizeT and
@@ -438,7 +454,19 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
       case SET_CERTIFICATE_FILE_ACCEPT:
       case SET_CERTIFICATE_FILE_CONNECT: {
 	 time_t mtime = 0;
+	 char *protocol_options = (buf + strlen(buf) + 1) + strlen(buf + strlen(buf) + 1) + 1;
+	 char *po = strdup(protocol_options), delim[] = "|";
+	 long options = 0L;
+
+	 if (strlen(protocol_options) != 0) {
+	   while ((po = strtok(po, delim)) != NULL) {
+             set_option_flag(po, &options);
+             po = NULL;
+           }
+	 }
+
 	 SSL_CTX *ssl_ctx = hash_table_lookup(buf, &mtime);
+
 	 if (is_key_file_modified(buf, &mtime) || ssl_ctx == NULL)
 	 {
 	    SSL_CTX *ctx;
@@ -515,11 +543,16 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
 	 SSL_set_bio(d->ssl, d->bio_read, d->bio_write);
 
 	 if (command == SET_CERTIFICATE_FILE_ACCEPT) {
-	    SSL_set_options(d->ssl, SSL_OP_NO_SSLv2|SSL_OP_NO_TICKET|SSL_OP_ALL);
+	    options |= (SSL_OP_NO_TICKET|SSL_OP_ALL|SSL_OP_NO_SSLv2);
+
+	    SSL_set_options(d->ssl, options);
 
 	    SSL_set_accept_state(d->ssl);
 	 } else {
-	    SSL_set_options(d->ssl, SSL_OP_NO_SSLv2|SSL_OP_NO_TICKET);
+	    options |= (SSL_OP_NO_TICKET|SSL_OP_NO_SSLv2);
+
+	    SSL_set_options(d->ssl, options);
+
 	    SSL_set_connect_state(d->ssl);
 	 }
 	 break;
