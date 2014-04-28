@@ -495,6 +495,7 @@ static ErlDrvSSizeT tls_drv_control(ErlDrvData handle,
 	    if (strlen(ciphers) == 0)
 	       ciphers = CIPHERS;
 	    SSL_CTX_set_cipher_list(ctx, ciphers);
+	    SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
 #ifndef OPENSSL_NO_ECDH
 	    if (command == SET_CERTIFICATE_FILE_ACCEPT) {
